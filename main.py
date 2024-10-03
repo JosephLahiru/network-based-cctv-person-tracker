@@ -5,9 +5,12 @@ from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, Callb
 import logging
 import time
 import dotenv
+import csv
+from datetime import datetime
+import os
 
-# load the .env variables
-load_dotenv()
+# Load the .env variables
+dotenv.load_dotenv()
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -75,6 +78,41 @@ def send_telegram_notification(update, context):
     message = "Object detected in CCTV feed!"
     context.bot.send_message(chat_id=chat_id, text=message)
 
+def save_image_and_update_csv(frame, boxes, confidences, class_ids):
+    # Generate a unique filename based on the current timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    filename = f"detection_{timestamp}.jpg"
+    image_path = os.path.join("detections", filename)
+
+    # Save the frame as an image
+    cv2.imwrite(image_path, frame)
+
+    # Extract detection information
+    detections = []
+    for i in range(len(boxes)):
+        x, y, w, h = boxes[i]
+        label = "Person" if class_ids[i] == 0 else "Car"
+        confidence = confidences[i]
+        detections.append((label, confidence))
+
+    # Update the CSV file
+    csv_file = "detections.csv"
+    fieldnames = ["Timestamp", "Image Path", "Detected Objects"]
+    with open(csv_file, mode='a', newline='', encoding='utf-8') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        
+        if csvfile.tell() == 0:
+            writer.writeheader()
+        
+        writer.writerow({
+            "Timestamp": timestamp,
+            "Image Path": image_path,
+            "Detected Objects": str(detections)
+        })
+
+    print(f"Saved image: {image_path}")
+    print(f"Updated CSV file: {csv_file}")
+
 def main():
     # Initialize Telegram bot
     updater = Updater(TELEGRAM_BOT_TOKEN, use_context=True)
@@ -99,6 +137,10 @@ def main():
             continue
         
         boxes, confidences, class_ids = detect_objects(frame)
+        
+        if len(boxes) > 0:
+            # Object(s) detected, save image and update CSV
+            save_image_and_update_csv(frame, boxes, confidences, class_ids)
         
         for i in range(len(boxes)):
             x, y, w, h = boxes[i]
